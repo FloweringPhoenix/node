@@ -48,14 +48,16 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   using Flags = base::Flags<Flag>;
 
   JSCallReducer(Editor* editor, JSGraph* jsgraph, JSHeapBroker* broker,
-                Zone* temp_zone, Flags flags,
-                CompilationDependencies* dependencies)
+                Zone* temp_zone, Flags flags)
       : AdvancedReducer(editor),
         jsgraph_(jsgraph),
         broker_(broker),
         temp_zone_(temp_zone),
-        flags_(flags),
-        dependencies_(dependencies) {}
+        flags_(flags) {}
+
+  // Max string length for inlining entire match sequence for
+  // String.prototype.startsWith in JSCallReducer.
+  static constexpr int kMaxInlineMatchSequence = 3;
 
   const char* reducer_name() const override { return "JSCallReducer"; }
 
@@ -71,6 +73,8 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   JSGraph* JSGraphForGraphAssembler() const { return jsgraph(); }
 
   bool has_wasm_calls() const { return has_wasm_calls_; }
+
+  CompilationDependencies* dependencies() const;
 
  private:
   Reduction ReduceBooleanConstructor(Node* node);
@@ -141,7 +145,10 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   Reduction ReduceJSCallWithSpread(Node* node);
   Reduction ReduceRegExpPrototypeTest(Node* node);
   Reduction ReduceReturnReceiver(Node* node);
-  Reduction ReduceStringPrototypeIndexOf(Node* node);
+
+  enum class StringIndexOfIncludesVariant { kIncludes, kIndexOf };
+  Reduction ReduceStringPrototypeIndexOfIncludes(
+      Node* node, StringIndexOfIncludesVariant variant);
   Reduction ReduceStringPrototypeSubstring(Node* node);
   Reduction ReduceStringPrototypeSlice(Node* node);
   Reduction ReduceStringPrototypeSubstr(Node* node);
@@ -158,6 +165,7 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   Reduction ReduceStringFromCharCode(Node* node);
   Reduction ReduceStringFromCodePoint(Node* node);
   Reduction ReduceStringPrototypeIterator(Node* node);
+  Reduction ReduceStringPrototypeLocaleCompare(Node* node);
   Reduction ReduceStringIteratorPrototypeNext(Node* node);
   Reduction ReduceStringPrototypeConcat(Node* node);
 
@@ -216,7 +224,7 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   Reduction ReduceNumberParseInt(Node* node);
 
   Reduction ReduceNumberConstructor(Node* node);
-  Reduction ReduceBigIntAsUintN(Node* node);
+  Reduction ReduceBigIntAsN(Node* node, Builtin builtin);
 
   // The pendant to ReplaceWithValue when using GraphAssembler-based reductions.
   Reduction ReplaceWithSubgraph(JSCallReducerAssembler* gasm, Node* subgraph);
@@ -256,13 +264,11 @@ class V8_EXPORT_PRIVATE JSCallReducer final : public AdvancedReducer {
   JSOperatorBuilder* javascript() const;
   SimplifiedOperatorBuilder* simplified() const;
   Flags flags() const { return flags_; }
-  CompilationDependencies* dependencies() const { return dependencies_; }
 
   JSGraph* const jsgraph_;
   JSHeapBroker* const broker_;
   Zone* const temp_zone_;
   Flags const flags_;
-  CompilationDependencies* const dependencies_;
   std::set<Node*> waitlist_;
 
   // For preventing infinite recursion via ReduceJSCallWithArrayLikeOrSpread.

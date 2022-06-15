@@ -191,6 +191,22 @@ let asyncTest = Promise.resolve();
   strictEqual(event.target, eventTarget2);
   deepStrictEqual(event.composedPath(), []);
 }
+{
+  // Same event dispatched multiple times, without listeners added.
+  const event = new Event('foo');
+  const eventTarget1 = new EventTarget();
+  const eventTarget2 = new EventTarget();
+
+  eventTarget1.dispatchEvent(event);
+  strictEqual(event.eventPhase, Event.NONE);
+  strictEqual(event.target, eventTarget1);
+  deepStrictEqual(event.composedPath(), []);
+
+  eventTarget2.dispatchEvent(event);
+  strictEqual(event.eventPhase, Event.NONE);
+  strictEqual(event.target, eventTarget2);
+  deepStrictEqual(event.composedPath(), []);
+}
 
 {
   const eventTarget = new EventTarget();
@@ -392,6 +408,13 @@ let asyncTest = Promise.resolve();
   target.onfoo = common.mustCall();
   target.dispatchEvent(new Event('foo'));
 }
+
+{
+  const target = new EventTarget();
+  defineEventHandler(target, 'foo');
+  strictEqual(target.onfoo, null);
+}
+
 {
   const target = new EventTarget();
   defineEventHandler(target, 'foo');
@@ -607,14 +630,14 @@ let asyncTest = Promise.resolve();
   strictEqual(et.constructor.name, 'EventTarget');
 }
 {
-  // Weak event handlers work
+  // Weak event listeners work
   const et = new EventTarget();
   const listener = common.mustCall();
   et.addEventListener('foo', listener, { [kWeakHandler]: et });
   et.dispatchEvent(new Event('foo'));
 }
 {
-  // Weak event handlers can be removed and weakness is not part of the key
+  // Weak event listeners can be removed and weakness is not part of the key
   const et = new EventTarget();
   const listener = common.mustNotCall();
   et.addEventListener('foo', listener, { [kWeakHandler]: et });

@@ -20,7 +20,6 @@ class ForInFeedback;
 class GlobalAccessFeedback;
 class InstanceOfFeedback;
 class LiteralFeedback;
-class MinimorphicLoadPropertyAccessFeedback;
 class NamedAccessFeedback;
 class RegExpLiteralFeedback;
 class TemplateObjectFeedback;
@@ -37,7 +36,6 @@ class ProcessedFeedback : public ZoneObject {
     kGlobalAccess,
     kInstanceOf,
     kLiteral,
-    kMinimorphicPropertyAccess,
     kNamedAccess,
     kRegExpLiteral,
     kTemplateObject,
@@ -55,8 +53,6 @@ class ProcessedFeedback : public ZoneObject {
   GlobalAccessFeedback const& AsGlobalAccess() const;
   InstanceOfFeedback const& AsInstanceOf() const;
   NamedAccessFeedback const& AsNamedAccess() const;
-  MinimorphicLoadPropertyAccessFeedback const& AsMinimorphicPropertyAccess()
-      const;
   LiteralFeedback const& AsLiteral() const;
   RegExpLiteralFeedback const& AsRegExpLiteral() const;
   TemplateObjectFeedback const& AsTemplateObject() const;
@@ -153,7 +149,7 @@ class ElementAccessFeedback : public ProcessedFeedback {
   // [e0, e1]                           [e0, e1]
   //
   ElementAccessFeedback const& Refine(
-      ZoneVector<Handle<Map>> const& inferred_maps, Zone* zone) const;
+      JSHeapBroker* broker, ZoneVector<MapRef> const& inferred_maps) const;
 
  private:
   KeyedAccessMode const keyed_mode_;
@@ -162,36 +158,15 @@ class ElementAccessFeedback : public ProcessedFeedback {
 
 class NamedAccessFeedback : public ProcessedFeedback {
  public:
-  NamedAccessFeedback(NameRef const& name, ZoneVector<Handle<Map>> const& maps,
+  NamedAccessFeedback(NameRef const& name, ZoneVector<MapRef> const& maps,
                       FeedbackSlotKind slot_kind);
 
   NameRef const& name() const { return name_; }
-  ZoneVector<Handle<Map>> const& maps() const { return maps_; }
+  ZoneVector<MapRef> const& maps() const { return maps_; }
 
  private:
   NameRef const name_;
-  ZoneVector<Handle<Map>> const maps_;
-};
-
-class MinimorphicLoadPropertyAccessFeedback : public ProcessedFeedback {
- public:
-  MinimorphicLoadPropertyAccessFeedback(NameRef const& name,
-                                        FeedbackSlotKind slot_kind,
-                                        Handle<Object> handler,
-                                        ZoneVector<Handle<Map>> const& maps,
-                                        bool has_migration_target_maps);
-
-  NameRef const& name() const { return name_; }
-  bool is_monomorphic() const { return maps_.size() == 1; }
-  Handle<Object> handler() const { return handler_; }
-  ZoneVector<Handle<Map>> const& maps() const { return maps_; }
-  bool has_migration_target_maps() const { return has_migration_target_maps_; }
-
- private:
-  NameRef const name_;
-  Handle<Object> const handler_;
-  ZoneVector<Handle<Map>> const maps_;
-  bool const has_migration_target_maps_;
+  ZoneVector<MapRef> const maps_;
 };
 
 class CallFeedback : public ProcessedFeedback {

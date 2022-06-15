@@ -11,63 +11,79 @@ namespace v8 {
 namespace internal {
 namespace wasm {
 
-#if defined(V8_OS_MACOSX) && defined(V8_HOST_ARCH_ARM64)
+thread_local NativeModule* CodeSpaceWriteScope::current_native_module_ =
+    nullptr;
 
-thread_local int CodeSpaceWriteScope::code_space_write_nesting_level_ = 0;
-
-// The {NativeModule} argument is unused; it is just here for a common API with
-// the non-M1 implementation.
 // TODO(jkummerow): Background threads could permanently stay in
 // writable mode; only the main thread has to switch back and forth.
-CodeSpaceWriteScope::CodeSpaceWriteScope(NativeModule*) {
-  if (code_space_write_nesting_level_ == 0) {
-    SwitchMemoryPermissionsToWritable();
-  }
-  code_space_write_nesting_level_++;
-}
-
-CodeSpaceWriteScope::~CodeSpaceWriteScope() {
-  code_space_write_nesting_level_--;
-  if (code_space_write_nesting_level_ == 0) {
-    SwitchMemoryPermissionsToExecutable();
-  }
-}
-
-#else  // Not on MacOS on ARM64 (M1 hardware): Use Intel PKU and/or mprotect.
-
 CodeSpaceWriteScope::CodeSpaceWriteScope(NativeModule* native_module)
-    : native_module_(native_module) {
-  DCHECK_NOT_NULL(native_module_);
-  if (FLAG_wasm_memory_protection_keys) {
-    auto* code_manager = GetWasmCodeManager();
-    if (code_manager->HasMemoryProtectionKeySupport()) {
-      code_manager->SetThreadWritable(true);
-      return;
-    }
-    // Fallback to mprotect-based write protection, if enabled.
-  }
-  if (FLAG_wasm_write_protect_code_memory) {
-    bool success = native_module_->SetWritable(true);
-    CHECK(success);
+    : previous_native_module_(current_native_module_) {
+  DCHECK_NOT_NULL(native_module);
+  if (previous_native_module_ == native_module) return;
+  current_native_module_ = native_module;
+  if (previous_native_module_ == nullptr || SwitchingPerNativeModule()) {
+    SetWritable();
   }
 }
 
 CodeSpaceWriteScope::~CodeSpaceWriteScope() {
-  if (FLAG_wasm_memory_protection_keys) {
-    auto* code_manager = GetWasmCodeManager();
-    if (code_manager->HasMemoryProtectionKeySupport()) {
-      code_manager->SetThreadWritable(false);
-      return;
-    }
-    // Fallback to mprotect-based write protection, if enabled.
+  if (previous_native_module_ == current_native_module_) return;
+  if (previous_native_module_ == nullptr || SwitchingPerNativeModule()) {
+    SetExecutable();
   }
-  if (FLAG_wasm_write_protect_code_memory) {
-    bool success = native_module_->SetWritable(false);
-    CHECK(success);
+  current_native_module_ = previous_native_module_;
+}
+
+#if V8_HAS_PTHREAD_JIT_WRITE_PROTECT
+
+// Ignoring this warning is considered better than relying on
+// __builtin_available.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+// static
+void CodeSpaceWriteScope::SetWritable() {
+  pthread_jit_write_protect_np(0);
+}
+
+// static
+void CodeSpaceWriteScope::SetExecutable() {
+  pthread_jit_write_protect_np(1);
+}
+#pragma clang diagnostic pop
+
+// static
+bool CodeSpaceWriteScope::SwitchingPerNativeModule() { return false; }
+
+#else  // !V8_HAS_PTHREAD_JIT_WRITE_PROTECT
+
+// static
+void CodeSpaceWriteScope::SetWritable() {
+  auto* code_manager = GetWasmCodeManager();
+  if (code_manager->MemoryProtectionKeysEnabled()) {
+    code_manager->SetThreadWritable(true);
+  } else if (FLAG_wasm_write_protect_code_memory) {
+    current_native_module_->AddWriter();
   }
 }
 
-#endif  // defined(V8_OS_MACOSX) && defined(V8_HOST_ARCH_ARM64)
+// static
+void CodeSpaceWriteScope::SetExecutable() {
+  auto* code_manager = GetWasmCodeManager();
+  if (code_manager->MemoryProtectionKeysEnabled()) {
+    DCHECK(FLAG_wasm_memory_protection_keys);
+    code_manager->SetThreadWritable(false);
+  } else if (FLAG_wasm_write_protect_code_memory) {
+    current_native_module_->RemoveWriter();
+  }
+}
+
+// static
+bool CodeSpaceWriteScope::SwitchingPerNativeModule() {
+  return !GetWasmCodeManager()->MemoryProtectionKeysEnabled() &&
+         FLAG_wasm_write_protect_code_memory;
+}
+
+#endif  // !V8_HAS_PTHREAD_JIT_WRITE_PROTECT
 
 }  // namespace wasm
 }  // namespace internal

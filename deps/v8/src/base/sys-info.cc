@@ -23,6 +23,8 @@
 #include "src/base/logging.h"
 #include "src/base/macros.h"
 #if V8_OS_WIN
+#include <windows.h>
+
 #include "src/base/win32-headers.h"
 #endif
 
@@ -61,7 +63,7 @@ int SysInfo::NumberOfProcessors() {
 
 // static
 int64_t SysInfo::AmountOfPhysicalMemory() {
-#if V8_OS_MACOSX
+#if V8_OS_DARWIN
   int mib[2] = {CTL_HW, HW_MEMSIZE};
   int64_t memsize = 0;
   size_t len = sizeof(memsize);

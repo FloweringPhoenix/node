@@ -14,6 +14,8 @@
 namespace v8 {
 namespace internal {
 
+class StructBodyDescriptor;
+
 #include "torque-generated/src/objects/struct-tq.inc"
 
 // An abstract superclass, a marker class really, for simple structure classes.
@@ -31,6 +33,8 @@ class Tuple2 : public TorqueGeneratedTuple2<Tuple2, Struct> {
  public:
   void BriefPrintDetails(std::ostream& os);
 
+  using BodyDescriptor = StructBodyDescriptor;
+
   TQ_OBJECT_CONSTRUCTORS(Tuple2)
 };
 
@@ -47,9 +51,16 @@ class AccessorPair : public TorqueGeneratedAccessorPair<AccessorPair, Struct> {
 
   inline Object get(AccessorComponent component);
   inline void set(AccessorComponent component, Object value);
+  inline void set(AccessorComponent component, Object value,
+                  ReleaseStoreTag tag);
 
-  DECL_GETTER(getter, Object)
-  DECL_RELAXED_GETTER(getter, Object)
+  using TorqueGeneratedAccessorPair::getter;
+  using TorqueGeneratedAccessorPair::set_getter;
+  DECL_RELEASE_ACQUIRE_ACCESSORS(getter, Object)
+
+  using TorqueGeneratedAccessorPair::set_setter;
+  using TorqueGeneratedAccessorPair::setter;
+  DECL_RELEASE_ACQUIRE_ACCESSORS(setter, Object)
 
   // Note: Returns undefined if the component is not set.
   static Handle<Object> GetComponent(Isolate* isolate,
@@ -62,8 +73,7 @@ class AccessorPair : public TorqueGeneratedAccessorPair<AccessorPair, Struct> {
 
   inline bool Equals(Object getter_value, Object setter_value);
 
-  // Dispatched behavior.
-  DECL_PRINTER(AccessorPair)
+  using BodyDescriptor = StructBodyDescriptor;
 
   TQ_OBJECT_CONSTRUCTORS(AccessorPair)
 };
@@ -72,8 +82,9 @@ class ClassPositions
     : public TorqueGeneratedClassPositions<ClassPositions, Struct> {
  public:
   // Dispatched behavior.
-  DECL_PRINTER(ClassPositions)
   void BriefPrintDetails(std::ostream& os);
+
+  using BodyDescriptor = StructBodyDescriptor;
 
   TQ_OBJECT_CONSTRUCTORS(ClassPositions)
 };

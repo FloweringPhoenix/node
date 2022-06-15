@@ -37,6 +37,6 @@ function foo() {
 
 foo();
 foo();
-%OptimizeFunctionOnNextCall(foo);
 expect_interpreted = false;
+%OptimizeFunctionOnNextCall(foo);
 foo();

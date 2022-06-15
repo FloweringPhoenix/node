@@ -39,6 +39,7 @@
 #include <memory>
 #include <unordered_map>
 
+#include "src/base/macros.h"
 #include "src/base/memory.h"
 #include "src/codegen/code-comments.h"
 #include "src/codegen/cpu-features.h"
@@ -64,7 +65,7 @@ using base::WriteUnalignedValue;
 
 // Forward declarations.
 class EmbeddedData;
-class InstructionStream;
+class OffHeapInstructionStream;
 class Isolate;
 class SCTableReference;
 class SourcePosition;
@@ -157,9 +158,9 @@ struct V8_EXPORT_PRIVATE AssemblerOptions {
   // assembler is used on existing code directly (e.g. JumpTableAssembler)
   // without any buffer to hold reloc information.
   bool disable_reloc_info_for_patching = false;
-  // Enables access to exrefs by computing a delta from the root array.
-  // Only valid if code will not survive the process.
-  bool enable_root_array_delta_access = false;
+  // Enables root-relative access to arbitrary untagged addresses (usually
+  // external references). Only valid if code will not survive the process.
+  bool enable_root_relative_access = false;
   // Enables specific assembler sequences only used for the simulator.
   bool enable_simulator_code = false;
   // Enables use of isolate-independent constants, indirected through the
@@ -174,9 +175,9 @@ struct V8_EXPORT_PRIVATE AssemblerOptions {
   // instructions. For example, when the bultins code is re-embedded into the
   // code range.
   bool short_builtin_calls = false;
-  // On some platforms, all code is within a given range in the process,
-  // and the start of this range is configured here.
-  Address code_range_start = 0;
+  // On some platforms, all code is created within a certain address range in
+  // the process, and the base of this code range is configured here.
+  Address code_range_base = 0;
   // Enable pc-relative calls/jumps on platforms that support it. When setting
   // this flag, the code range must be small enough to fit all offsets into
   // the instruction immediates.
@@ -202,8 +203,6 @@ class AssemblerBuffer {
   // destructed), but not written.
   virtual std::unique_ptr<AssemblerBuffer> Grow(int new_size)
       V8_WARN_UNUSED_RESULT = 0;
-  virtual bool IsOnHeap() const { return false; }
-  virtual MaybeHandle<Code> code() const { return MaybeHandle<Code>(); }
 };
 
 // Allocate an AssemblerBuffer which uses an existing buffer. This buffer cannot
@@ -215,10 +214,6 @@ std::unique_ptr<AssemblerBuffer> ExternalAssemblerBuffer(void* buffer,
 // Allocate a new growable AssemblerBuffer with a given initial size.
 V8_EXPORT_PRIVATE
 std::unique_ptr<AssemblerBuffer> NewAssemblerBuffer(int size);
-
-V8_EXPORT_PRIVATE
-std::unique_ptr<AssemblerBuffer> NewOnHeapAssemblerBuffer(Isolate* isolate,
-                                                          int size);
 
 class V8_EXPORT_PRIVATE AssemblerBase : public Malloced {
  public:
@@ -273,19 +268,14 @@ class V8_EXPORT_PRIVATE AssemblerBase : public Malloced {
   int pc_offset() const { return static_cast<int>(pc_ - buffer_start_); }
 
   int pc_offset_for_safepoint() {
-#if defined(V8_TARGET_ARCH_MIPS) || defined(V8_TARGET_ARCH_MIPS64)
-    // Mips needs it's own implementation to avoid trampoline's influence.
+#if defined(V8_TARGET_ARCH_MIPS) || defined(V8_TARGET_ARCH_MIPS64) || \
+    defined(V8_TARGET_ARCH_LOONG64)
+    // MIPS and LOONG need to use their own implementation to avoid trampoline's
+    // influence.
     UNREACHABLE();
 #else
     return pc_offset();
 #endif
-  }
-
-  bool IsOnHeap() const { return buffer_->IsOnHeap(); }
-
-  MaybeHandle<Code> code() const {
-    DCHECK(IsOnHeap());
-    return buffer_->code();
   }
 
   byte* buffer_start() const { return buffer_->start(); }
@@ -363,8 +353,8 @@ class V8_EXPORT_PRIVATE AssemblerBase : public Malloced {
  protected:
   // Add 'target' to the {code_targets_} vector, if necessary, and return the
   // offset at which it is stored.
-  int AddCodeTarget(Handle<Code> target);
-  Handle<Code> GetCodeTarget(intptr_t code_target_index) const;
+  int AddCodeTarget(Handle<CodeT> target);
+  Handle<CodeT> GetCodeTarget(intptr_t code_target_index) const;
 
   // Add 'object' to the {embedded_objects_} vector and return the index at
   // which it is stored.
@@ -398,20 +388,19 @@ class V8_EXPORT_PRIVATE AssemblerBase : public Malloced {
   void RequestHeapObject(HeapObjectRequest request);
 
   bool ShouldRecordRelocInfo(RelocInfo::Mode rmode) const {
-    DCHECK(!RelocInfo::IsNone(rmode));
+    DCHECK(!RelocInfo::IsNoInfo(rmode));
     if (options().disable_reloc_info_for_patching) return false;
     if (RelocInfo::IsOnlyForSerializer(rmode) &&
         !options().record_reloc_info_for_serialization && !FLAG_debug_code) {
       return false;
     }
+#ifndef ENABLE_DISASSEMBLER
+    if (RelocInfo::IsLiteralConstant(rmode)) return false;
+#endif
     return true;
   }
 
   CodeCommentsWriter code_comments_writer_;
-
-  // Relocation information when code allocated directly on heap.
-  std::vector<std::pair<uint32_t, Address>> saved_handles_for_raw_object_ptr_;
-  std::vector<std::pair<uint32_t, uint32_t>> saved_offsets_for_runtime_entries_;
 
  private:
   // Before we copy code into the code space, we sometimes cannot encode
@@ -420,7 +409,7 @@ class V8_EXPORT_PRIVATE AssemblerBase : public Malloced {
   // guaranteed to fit in the instruction's offset field. We keep track of the
   // code handles we encounter in calls in this vector, and encode the index of
   // the code handle in the vector instead.
-  std::vector<Handle<Code>> code_targets_;
+  std::vector<Handle<CodeT>> code_targets_;
 
   // If an assembler needs a small number to refer to a heap object handle
   // (for example, because there are only 32bit available on a 64bit arch), the
@@ -482,7 +471,7 @@ class V8_EXPORT_PRIVATE V8_NODISCARD CpuFeatureScope {
 #ifdef V8_CODE_COMMENTS
 #define ASM_CODE_COMMENT(asm) ASM_CODE_COMMENT_STRING(asm, __func__)
 #define ASM_CODE_COMMENT_STRING(asm, comment) \
-  AssemblerBase::CodeComment asm_code_comment(asm, comment)
+  AssemblerBase::CodeComment UNIQUE_IDENTIFIER(asm_code_comment)(asm, comment)
 #else
 #define ASM_CODE_COMMENT(asm)
 #define ASM_CODE_COMMENT_STRING(asm, ...)

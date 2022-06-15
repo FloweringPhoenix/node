@@ -188,6 +188,9 @@ class V8_EXPORT_PRIVATE LookupIterator final {
   Handle<Object> GetDataValue(AllocationPolicy allocation_policy =
                                   AllocationPolicy::kAllocationAllowed) const;
   void WriteDataValue(Handle<Object> value, bool initializing_store);
+  Handle<Object> GetDataValue(SeqCstAccessTag tag) const;
+  void WriteDataValue(Handle<Object> value, SeqCstAccessTag tag);
+  Handle<Object> SwapDataValue(Handle<Object> value, SeqCstAccessTag tag);
   inline void UpdateProtector();
   static inline void UpdateProtector(Isolate* isolate, Handle<Object> receiver,
                                      Handle<Name> name);
@@ -344,6 +347,13 @@ class ConcurrentLookupIterator final : public AllStatic {
       Object* result_out, Isolate* isolate, LocalIsolate* local_isolate,
       JSObject holder, FixedArrayBase elements, ElementsKind elements_kind,
       size_t index);
+
+  // Implements the own data property lookup for the specialized case of
+  // strings.
+  V8_EXPORT_PRIVATE static Result TryGetOwnChar(String* result_out,
+                                                Isolate* isolate,
+                                                LocalIsolate* local_isolate,
+                                                String string, size_t index);
 
   // This method reimplements the following sequence in a concurrent setting:
   //

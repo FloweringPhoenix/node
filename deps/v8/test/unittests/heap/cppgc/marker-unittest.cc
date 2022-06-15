@@ -7,12 +7,14 @@
 #include <memory>
 
 #include "include/cppgc/allocation.h"
+#include "include/cppgc/ephemeron-pair.h"
 #include "include/cppgc/internal/pointer-policies.h"
 #include "include/cppgc/member.h"
 #include "include/cppgc/persistent.h"
 #include "include/cppgc/trace-trait.h"
 #include "src/heap/cppgc/heap-object-header.h"
 #include "src/heap/cppgc/marking-visitor.h"
+#include "src/heap/cppgc/object-allocator.h"
 #include "src/heap/cppgc/stats-collector.h"
 #include "test/unittests/heap/cppgc/tests.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -38,11 +40,13 @@ class MarkerTest : public testing::TestWithHeap {
 
   void InitializeMarker(HeapBase& heap, cppgc::Platform* platform,
                         MarkingConfig config) {
-    marker_ =
-        MarkerFactory::CreateAndStartMarking<Marker>(heap, platform, config);
+    marker_ = std::make_unique<Marker>(heap, platform, config);
+    marker_->StartMarking();
   }
 
   Marker* marker() const { return marker_.get(); }
+
+  void ResetMarker() { marker_.reset(); }
 
  private:
   std::unique_ptr<Marker> marker_;
@@ -346,6 +350,50 @@ TEST_F(MarkerTest, SentinelNotClearedOnWeakPersistentHandling) {
   EXPECT_EQ(kSentinelPointer, root->weak_child());
 }
 
+namespace {
+
+class SimpleObject final : public GarbageCollected<SimpleObject> {
+ public:
+  void Trace(Visitor*) const {}
+};
+
+class ObjectWithEphemeronPair final
+    : public GarbageCollected<ObjectWithEphemeronPair> {
+ public:
+  explicit ObjectWithEphemeronPair(AllocationHandle& handle)
+      : ephemeron_pair_(MakeGarbageCollected<SimpleObject>(handle),
+                        MakeGarbageCollected<SimpleObject>(handle)) {}
+
+  void Trace(Visitor* visitor) const {
+    // First trace the ephemeron pair. The key is not yet marked as live, so the
+    // pair should be recorded for later processing. Then strongly mark the key.
+    // Marking the key will not trigger another worklist processing iteration,
+    // as it merely continues the same loop for regular objects and will leave
+    // the main marking worklist empty. If recording the ephemeron pair doesn't
+    // as well, we will get a crash when destroying the marker.
+    visitor->Trace(ephemeron_pair_);
+    visitor->Trace(const_cast<const SimpleObject*>(ephemeron_pair_.key.Get()));
+  }
+
+ private:
+  const EphemeronPair<SimpleObject, SimpleObject> ephemeron_pair_;
+};
+
+}  // namespace
+
+TEST_F(MarkerTest, MarkerProcessesAllEphemeronPairs) {
+  static const Marker::MarkingConfig config = {
+      MarkingConfig::CollectionType::kMajor,
+      MarkingConfig::StackState::kNoHeapPointers,
+      MarkingConfig::MarkingType::kAtomic};
+  Persistent<ObjectWithEphemeronPair> obj =
+      MakeGarbageCollected<ObjectWithEphemeronPair>(GetAllocationHandle(),
+                                                    GetAllocationHandle());
+  InitializeMarker(*Heap::From(GetHeap()), GetPlatformHandle().get(), config);
+  marker()->FinishMarking(MarkingConfig::StackState::kNoHeapPointers);
+  ResetMarker();
+}
+
 // Incremental Marking
 
 class IncrementalMarkingTest : public testing::TestWithHeap {
@@ -373,11 +421,11 @@ class IncrementalMarkingTest : public testing::TestWithHeap {
 
   void InitializeMarker(HeapBase& heap, cppgc::Platform* platform,
                         MarkingConfig config) {
-    GetMarkerRef() =
-        MarkerFactory::CreateAndStartMarking<Marker>(heap, platform, config);
+    GetMarkerRef() = std::make_unique<Marker>(heap, platform, config);
+    GetMarkerRef()->StartMarking();
   }
 
-  MarkerBase* marker() const { return GetMarkerRef().get(); }
+  MarkerBase* marker() const { return Heap::From(GetHeap())->marker(); }
 
  private:
   bool SingleStep(MarkingConfig::StackState stack_state) {

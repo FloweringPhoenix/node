@@ -10,22 +10,11 @@
 #include "base/logging.h"
 #include "base/strings/strcat.h"
 #include "base/strings/string_util.h"
+#include "third_party/zlib/google/redact.h"
 #include "third_party/zlib/google/zip_internal.h"
 
 namespace zip {
 namespace internal {
-
-class Redact {
- public:
-  explicit Redact(const base::FilePath& path) : path_(path) {}
-
-  friend std::ostream& operator<<(std::ostream& out, const Redact&& r) {
-    return LOG_IS_ON(INFO) ? out << "'" << r.path_ << "'" : out << "(redacted)";
-  }
-
- private:
-  const base::FilePath& path_;
-};
 
 bool ZipWriter::ShouldContinue() {
   if (!progress_callback_)
@@ -74,13 +63,21 @@ bool ZipWriter::OpenNewFileEntry(const base::FilePath& path,
                                  bool is_directory,
                                  base::Time last_modified) {
   std::string str_path = path.AsUTF8Unsafe();
+
 #if defined(OS_WIN)
   base::ReplaceSubstringsAfterOffset(&str_path, 0u, "\\", "/");
 #endif
-  if (is_directory)
-    str_path += "/";
 
-  return zip::internal::ZipOpenNewFileInZip(zip_file_, str_path, last_modified);
+  Compression compression = kDeflated;
+
+  if (is_directory) {
+    str_path += "/";
+  } else {
+    compression = GetCompressionMethod(path);
+  }
+
+  return zip::internal::ZipOpenNewFileInZip(zip_file_, str_path, last_modified,
+                                            compression);
 }
 
 bool ZipWriter::CloseNewFileEntry() {
@@ -104,12 +101,10 @@ bool ZipWriter::AddFileEntry(const base::FilePath& path, base::File file) {
 
 bool ZipWriter::AddDirectoryEntry(const base::FilePath& path) {
   FileAccessor::Info info;
-  if (!file_accessor_->GetInfo(path, &info))
-    return false;
-
-  if (!info.is_directory) {
+  if (!file_accessor_->GetInfo(path, &info) || !info.is_directory) {
     LOG(ERROR) << "Not a directory: " << Redact(path);
-    return false;
+    progress_.errors++;
+    return continue_on_error_;
   }
 
   if (!OpenNewFileEntry(path, /*is_directory=*/true, info.last_modified))
@@ -128,7 +123,7 @@ bool ZipWriter::AddDirectoryEntry(const base::FilePath& path) {
   return AddDirectoryContents(path);
 }
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 // static
 std::unique_ptr<ZipWriter> ZipWriter::CreateWithFd(
     int zip_file_fd,
@@ -254,6 +249,11 @@ bool ZipWriter::AddFileEntries(Paths paths) {
 
       if (!file.IsValid()) {
         LOG(ERROR) << "Cannot open " << Redact(relative_path);
+        progress_.errors++;
+
+        if (continue_on_error_)
+          continue;
+
         return false;
       }
 
@@ -277,8 +277,10 @@ bool ZipWriter::AddDirectoryEntries(Paths paths) {
 bool ZipWriter::AddDirectoryContents(const base::FilePath& path) {
   std::vector<base::FilePath> files, subdirs;
 
-  if (!file_accessor_->List(path, &files, &subdirs))
-    return false;
+  if (!file_accessor_->List(path, &files, &subdirs)) {
+    progress_.errors++;
+    return continue_on_error_;
+  }
 
   Filter(&files);
   Filter(&subdirs);

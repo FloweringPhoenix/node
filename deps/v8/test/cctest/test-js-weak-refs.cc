@@ -31,6 +31,14 @@ Handle<JSFinalizationRegistry> ConstructJSFinalizationRegistry(
       JSObject::New(finalization_registry_fun, finalization_registry_fun,
                     Handle<AllocationSite>::null())
           .ToHandleChecked());
+
+  // JSObject::New filled all of the internal fields with undefined. Some of
+  // them have more restrictive types, so set those now.
+  finalization_registry->set_native_context(*isolate->native_context());
+  finalization_registry->set_cleanup(
+      isolate->native_context()->empty_function());
+  finalization_registry->set_flags(0);
+
 #ifdef VERIFY_HEAP
   finalization_registry->JSFinalizationRegistryVerify(isolate);
 #endif  // VERIFY_HEAP
@@ -902,6 +910,7 @@ TEST(JSWeakRefScavengedInWorklist) {
     CHECK(
         heap->mark_compact_collector()->weak_objects()->js_weak_refs.IsEmpty());
     heap::SimulateIncrementalMarking(heap, true);
+    heap->mark_compact_collector()->local_weak_objects()->Publish();
     CHECK(!heap->mark_compact_collector()
                ->weak_objects()
                ->js_weak_refs.IsEmpty());
@@ -916,7 +925,8 @@ TEST(JSWeakRefScavengedInWorklist) {
 }
 
 TEST(JSWeakRefTenuredInWorklist) {
-  if (!FLAG_incremental_marking || FLAG_single_generation) {
+  if (!FLAG_incremental_marking || FLAG_single_generation ||
+      FLAG_separate_gc_phases) {
     return;
   }
 
@@ -949,6 +959,7 @@ TEST(JSWeakRefTenuredInWorklist) {
   // since its target isn't marked.
   CHECK(heap->mark_compact_collector()->weak_objects()->js_weak_refs.IsEmpty());
   heap::SimulateIncrementalMarking(heap, true);
+  heap->mark_compact_collector()->local_weak_objects()->Publish();
   CHECK(
       !heap->mark_compact_collector()->weak_objects()->js_weak_refs.IsEmpty());
 

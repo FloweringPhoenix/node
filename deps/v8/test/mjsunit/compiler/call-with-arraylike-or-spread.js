@@ -9,6 +9,10 @@
 // and assertions would fail. We prevent re-runs.
 // Flags: --nostress-opt --no-always-opt
 
+// These tests do not work well if we flush the feedback vector, which causes
+// deoptimization.
+// Flags: --no-stress-flush-code --no-flush-bytecode
+
 // Some of the tests rely on optimizing/deoptimizing at predictable moments, so
 // this is not suitable for deoptimization fuzzing.
 // Flags: --deopt-every-n-times=0
@@ -35,6 +39,24 @@
   assertEquals('abc', foo('a', 'b', 'c'));
   assertOptimized(foo);
   assertFalse(sum_js_got_interpreted);
+})();
+
+// Test using receiver
+(function () {
+  function bar() {
+    return this.gaga;
+  }
+  function foo(receiver) {
+    return bar.apply(receiver, [""]);
+  }
+
+  %PrepareFunctionForOptimization(bar);
+  %PrepareFunctionForOptimization(foo);
+  var receiver = { gaga: 42 };
+  assertEquals(42, foo(receiver));
+  %OptimizeFunctionOnNextCall(foo);
+  assertEquals(42, foo(receiver));
+  assertOptimized(foo);
 })();
 
 // Test with holey array.

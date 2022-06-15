@@ -48,15 +48,27 @@ bool Heap::InSpace(Address, AllocationSpace) { return false; }
 bool Heap::InOldSpace(Address) { return false; }
 
 // static
-bool Heap::InCodeSpace(Address) { return false; }
+bool Heap::InReadOnlySpace(Address) { return false; }
 
 // static
-bool Heap::InReadOnlySpace(Address) { return false; }
+bool Heap::InLargeObjectSpace(Address address) { return false; }
 
 // static
 bool Heap::IsValidHeapObject(HeapObject) { return false; }
 
+// static
+bool Heap::IsImmovable(HeapObject) { return false; }
+
+// static
+bool Heap::IsValidCodeObject(HeapObject) { return false; }
+
+void Heap::ResetIterator() {}
+
+HeapObject Heap::NextObject() { return HeapObject(); }
+
 bool Heap::CollectGarbage() { return false; }
+
+size_t Heap::Capacity() { return 0; }
 
 }  // namespace third_party_heap
 }  // namespace internal

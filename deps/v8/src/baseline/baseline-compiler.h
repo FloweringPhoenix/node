@@ -7,14 +7,14 @@
 
 // TODO(v8:11421): Remove #if once baseline compiler is ported to other
 // architectures.
-#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64 ||     \
-    V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_RISCV64 || V8_TARGET_ARCH_MIPS64 || \
-    V8_TARGET_ARCH_MIPS
+#include "src/flags/flags.h"
+#if ENABLE_SPARKPLUG
 
 #include "src/base/logging.h"
 #include "src/base/threaded-list.h"
 #include "src/base/vlq.h"
 #include "src/baseline/baseline-assembler.h"
+#include "src/execution/local-isolate.h"
 #include "src/handles/handles.h"
 #include "src/interpreter/bytecode-array-iterator.h"
 #include "src/interpreter/bytecode-register.h"
@@ -52,14 +52,12 @@ class BytecodeOffsetTableBuilder {
 
 class BaselineCompiler {
  public:
-  enum CodeLocation { kOffHeap, kOnHeap };
-  explicit BaselineCompiler(
-      Isolate* isolate, Handle<SharedFunctionInfo> shared_function_info,
-      Handle<BytecodeArray> bytecode,
-      CodeLocation code_location = CodeLocation::kOffHeap);
+  explicit BaselineCompiler(LocalIsolate* local_isolate,
+                            Handle<SharedFunctionInfo> shared_function_info,
+                            Handle<BytecodeArray> bytecode);
 
   void GenerateCode();
-  MaybeHandle<Code> Build(Isolate* isolate);
+  MaybeHandle<Code> Build(LocalIsolate* local_isolate);
   static int EstimateInstructionSize(BytecodeArray bytecode);
 
  private:
@@ -160,9 +158,10 @@ class BaselineCompiler {
 
   const interpreter::BytecodeArrayIterator& iterator() { return iterator_; }
 
-  Isolate* isolate_;
+  LocalIsolate* local_isolate_;
   RuntimeCallStats* stats_;
   Handle<SharedFunctionInfo> shared_function_info_;
+  Handle<HeapObject> interpreter_data_;
   Handle<BytecodeArray> bytecode_;
   MacroAssembler masm_;
   BaselineAssembler basm_;
@@ -197,6 +196,6 @@ class BaselineCompiler {
 }  // namespace internal
 }  // namespace v8
 
-#endif
+#endif  // ENABLE_SPARKPLUG
 
 #endif  // V8_BASELINE_BASELINE_COMPILER_H_

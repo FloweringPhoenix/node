@@ -44,12 +44,15 @@ class V8_NODISCARD UnparkedScope {
   LocalHeap* const local_heap_;
 };
 
+// Scope that automatically parks the thread while blocking on the given
+// base::Mutex.
 class V8_NODISCARD ParkedMutexGuard {
  public:
   explicit ParkedMutexGuard(LocalIsolate* local_isolate, base::Mutex* mutex)
       : ParkedMutexGuard(local_isolate->heap(), mutex) {}
   explicit ParkedMutexGuard(LocalHeap* local_heap, base::Mutex* mutex)
       : mutex_(mutex) {
+    DCHECK(AllowGarbageCollection::IsAllowed());
     if (!mutex_->TryLock()) {
       ParkedScope scope(local_heap);
       mutex_->Lock();
@@ -74,6 +77,7 @@ class V8_NODISCARD ParkedSharedMutexGuardIf final {
       : ParkedSharedMutexGuardIf(local_isolate->heap(), mutex, enable_mutex) {}
   ParkedSharedMutexGuardIf(LocalHeap* local_heap, base::SharedMutex* mutex,
                            bool enable_mutex) {
+    DCHECK(AllowGarbageCollection::IsAllowed());
     DCHECK_IMPLIES(Behavior == base::NullBehavior::kRequireNotNull,
                    mutex != nullptr);
     if (!enable_mutex) return;

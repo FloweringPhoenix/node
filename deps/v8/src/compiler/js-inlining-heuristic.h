@@ -27,12 +27,10 @@ class JSInliningHeuristic final : public AdvancedReducer {
         jsgraph_(jsgraph),
         broker_(broker),
         mode_(mode),
-        max_inlined_bytecode_size_(
-            ScaleInliningSize(FLAG_max_inlined_bytecode_size, broker)),
-        max_inlined_bytecode_size_cumulative_(ScaleInliningSize(
-            FLAG_max_inlined_bytecode_size_cumulative, broker)),
-        max_inlined_bytecode_size_absolute_(ScaleInliningSize(
-            FLAG_max_inlined_bytecode_size_absolute, broker)) {}
+        max_inlined_bytecode_size_cumulative_(
+            FLAG_max_inlined_bytecode_size_cumulative),
+        max_inlined_bytecode_size_absolute_(
+            FLAG_max_inlined_bytecode_size_absolute) {}
 
   const char* reducer_name() const override { return "JSInliningHeuristic"; }
 
@@ -78,8 +76,6 @@ class JSInliningHeuristic final : public AdvancedReducer {
   // Candidates are kept in a sorted set of unique candidates.
   using Candidates = ZoneSet<Candidate, CandidateCompare>;
 
-  static int ScaleInliningSize(int value, JSHeapBroker* broker);
-
   // Dumps candidates to console.
   void PrintCandidates();
   Reduction InlineCandidate(Candidate const& candidate, bool small_function);
@@ -100,6 +96,7 @@ class JSInliningHeuristic final : public AdvancedReducer {
   JSGraph* jsgraph() const { return jsgraph_; }
   // TODO(neis): Make heap broker a component of JSGraph?
   JSHeapBroker* broker() const { return broker_; }
+  CompilationDependencies* dependencies() const;
   Isolate* isolate() const { return jsgraph_->isolate(); }
   SimplifiedOperatorBuilder* simplified() const;
   Mode mode() const { return mode_; }
@@ -112,7 +109,6 @@ class JSInliningHeuristic final : public AdvancedReducer {
   JSHeapBroker* const broker_;
   int total_inlined_bytecode_size_ = 0;
   const Mode mode_;
-  const int max_inlined_bytecode_size_;
   const int max_inlined_bytecode_size_cumulative_;
   const int max_inlined_bytecode_size_absolute_;
 };

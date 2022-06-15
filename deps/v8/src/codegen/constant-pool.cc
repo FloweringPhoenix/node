@@ -353,17 +353,7 @@ void ConstantPool::Emit(const ConstantPoolKey& key) {
   if (key.is_value32()) {
     assm_->dd(key.value32());
   } else {
-    if (assm_->IsOnHeap() && RelocInfo::IsEmbeddedObjectMode(key.rmode())) {
-      assm_->saved_handles_for_raw_object_ptr_.push_back(
-          std::make_pair(assm_->pc_offset(), key.value64()));
-      Handle<Object> handle = assm_->GetEmbeddedObject(key.value64());
-      assm_->dq(handle->ptr());
-      // We must ensure that `dq` is not growing the assembler buffer
-      // and falling back to off-heap compilation.
-      DCHECK(assm_->IsOnHeap());
-    } else {
-      assm_->dq(key.value64());
-    }
+    assm_->dq(key.value64());
   }
 }
 

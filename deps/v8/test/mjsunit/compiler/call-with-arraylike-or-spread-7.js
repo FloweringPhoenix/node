@@ -9,6 +9,10 @@
 // and assertions would fail. We prevent re-runs.
 // Flags: --nostress-opt --no-always-opt
 
+// These tests do not work well if we flush the feedback vector, which causes
+// deoptimization.
+// Flags: --no-stress-flush-code --no-flush-bytecode
+
 // Some of the tests rely on optimizing/deoptimizing at predictable moments, so
 // this is not suitable for deoptimization fuzzing.
 // Flags: --deopt-every-n-times=0
@@ -43,6 +47,7 @@
   // The call with spread should have been inlined.
   assertFalse(log_got_interpreted);
   assertOptimized(foo);
+  %PrepareFunctionForOptimization(foo);
 
   // This invalidates the DependOnArrayIteratorProtector and causes deopt.
   Object.defineProperty(Array.prototype, Symbol.iterator, {

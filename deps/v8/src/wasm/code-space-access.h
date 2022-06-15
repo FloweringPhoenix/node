@@ -45,53 +45,38 @@ class NativeModule;
 // permissions for all code pages.
 class V8_NODISCARD CodeSpaceWriteScope final {
  public:
-  explicit CodeSpaceWriteScope(NativeModule* native_module);
-  ~CodeSpaceWriteScope();
+  explicit V8_EXPORT_PRIVATE CodeSpaceWriteScope(NativeModule*);
+  V8_EXPORT_PRIVATE ~CodeSpaceWriteScope();
 
   // Disable copy constructor and copy-assignment operator, since this manages
   // a resource and implicit copying of the scope can yield surprising errors.
   CodeSpaceWriteScope(const CodeSpaceWriteScope&) = delete;
   CodeSpaceWriteScope& operator=(const CodeSpaceWriteScope&) = delete;
 
+  static bool IsInScope() { return current_native_module_ != nullptr; }
+
  private:
-#if defined(V8_OS_MACOSX) && defined(V8_HOST_ARCH_ARM64)
-  static thread_local int code_space_write_nesting_level_;
-#else   // On non-M1 hardware:
   // The M1 implementation knows implicitly from the {MAP_JIT} flag during
-  // allocation which region to switch permissions for. On non-M1 hardware,
-  // however, we either need the protection key or code space from the
-  // {native_module_}.
-  NativeModule* native_module_;
-#endif  // defined(V8_OS_MACOSX) && defined(V8_HOST_ARCH_ARM64)
+  // allocation which region to switch permissions for. On non-M1 hardware
+  // without memory protection key support, we need the code space from the
+  // {NativeModule}.
+  static thread_local NativeModule* current_native_module_;
+
+  // {SetWritable} and {SetExecutable} implicitly operate on
+  // {current_native_module_} (for mprotect-based protection).
+  static void SetWritable();
+  static void SetExecutable();
+
+  // Returns {true} if switching permissions happens on a per-module level, and
+  // not globally (like for MAP_JIT and PKU).
+  static bool SwitchingPerNativeModule();
+
+  // Save the previous module to put it back in {current_native_module_} when
+  // exiting this scope.
+  NativeModule* const previous_native_module_;
 };
 
 }  // namespace wasm
-
-#if defined(V8_OS_MACOSX) && defined(V8_HOST_ARCH_ARM64)
-
-// Low-level API for switching MAP_JIT pages between writable and executable.
-// TODO(wasm): Access to these functions is only needed in tests. Remove?
-
-// Ignoring this warning is considered better than relying on
-// __builtin_available.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunguarded-availability-new"
-inline void SwitchMemoryPermissionsToWritable() {
-  pthread_jit_write_protect_np(0);
-}
-inline void SwitchMemoryPermissionsToExecutable() {
-  pthread_jit_write_protect_np(1);
-}
-#pragma clang diagnostic pop
-
-#else  // Not Mac-on-arm64.
-
-// Nothing to do, we map code memory with rwx permissions.
-inline void SwitchMemoryPermissionsToWritable() {}
-inline void SwitchMemoryPermissionsToExecutable() {}
-
-#endif  // defined(V8_OS_MACOSX) && defined(V8_HOST_ARCH_ARM64)
-
 }  // namespace internal
 }  // namespace v8
 

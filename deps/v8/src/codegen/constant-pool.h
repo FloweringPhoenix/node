@@ -24,13 +24,13 @@ class ConstantPoolEntry {
  public:
   ConstantPoolEntry() = default;
   ConstantPoolEntry(int position, intptr_t value, bool sharing_ok,
-                    RelocInfo::Mode rmode = RelocInfo::NONE)
+                    RelocInfo::Mode rmode = RelocInfo::NO_INFO)
       : position_(position),
         merged_index_(sharing_ok ? SHARING_ALLOWED : SHARING_PROHIBITED),
         value_(value),
         rmode_(rmode) {}
   ConstantPoolEntry(int position, base::Double value,
-                    RelocInfo::Mode rmode = RelocInfo::NONE)
+                    RelocInfo::Mode rmode = RelocInfo::NO_INFO)
       : position_(position),
         merged_index_(SHARING_ALLOWED),
         value64_(value.AsUint64()),
@@ -168,11 +168,11 @@ class ConstantPoolBuilder {
 class ConstantPoolKey {
  public:
   explicit ConstantPoolKey(uint64_t value,
-                           RelocInfo::Mode rmode = RelocInfo::NONE)
+                           RelocInfo::Mode rmode = RelocInfo::NO_INFO)
       : is_value32_(false), value64_(value), rmode_(rmode) {}
 
   explicit ConstantPoolKey(uint32_t value,
-                           RelocInfo::Mode rmode = RelocInfo::NONE)
+                           RelocInfo::Mode rmode = RelocInfo::NO_INFO)
       : is_value32_(true), value32_(value), rmode_(rmode) {}
 
   uint64_t value64() const {
@@ -192,7 +192,8 @@ class ConstantPoolKey {
            rmode_ != RelocInfo::VENEER_POOL &&
            rmode_ != RelocInfo::DEOPT_SCRIPT_OFFSET &&
            rmode_ != RelocInfo::DEOPT_INLINING_ID &&
-           rmode_ != RelocInfo::DEOPT_REASON && rmode_ != RelocInfo::DEOPT_ID);
+           rmode_ != RelocInfo::DEOPT_REASON && rmode_ != RelocInfo::DEOPT_ID &&
+           rmode_ != RelocInfo::DEOPT_NODE_ID);
     // CODE_TARGETs can be shared because they aren't patched anymore,
     // and we make sure we emit only one reloc info for them (thus delta
     // patching) will apply the delta only once. At the moment, we do not dedup

@@ -7,9 +7,8 @@
 
 // TODO(v8:11421): Remove #if once baseline compiler is ported to other
 // architectures.
-#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64 ||     \
-    V8_TARGET_ARCH_ARM || V8_TARGET_ARCH_RISCV64 || V8_TARGET_ARCH_MIPS64 || \
-    V8_TARGET_ARCH_MIPS
+#include "src/flags/flags.h"
+#if ENABLE_SPARKPLUG
 
 #include "src/codegen/macro-assembler.h"
 #include "src/objects/tagged-index.h"
@@ -27,6 +26,8 @@ class BaselineAssembler {
   explicit BaselineAssembler(MacroAssembler* masm) : masm_(masm) {}
   inline static MemOperand RegisterFrameOperand(
       interpreter::Register interpreter_register);
+  inline void RegisterFrameAddress(interpreter::Register interpreter_register,
+                                   Register rscratch);
   inline MemOperand ContextOperand();
   inline MemOperand FunctionOperand();
   inline MemOperand FeedbackVectorOperand();
@@ -78,6 +79,9 @@ class BaselineAssembler {
                         Label::Distance distance = Label::kFar);
   inline void JumpIfSmi(Condition cc, Register lhs, Register rhs, Label* target,
                         Label::Distance distance = Label::kFar);
+  inline void JumpIfImmediate(Condition cc, Register left, int right,
+                              Label* target,
+                              Label::Distance distance = Label::kFar);
   inline void JumpIfTagged(Condition cc, Register value, MemOperand operand,
                            Label* target,
                            Label::Distance distance = Label::kFar);
@@ -151,7 +155,9 @@ class BaselineAssembler {
   inline void LoadTaggedSignedField(Register output, Register source,
                                     int offset);
   inline void LoadTaggedAnyField(Register output, Register source, int offset);
-  inline void LoadByteField(Register output, Register source, int offset);
+  inline void LoadWord16FieldZeroExtend(Register output, Register source,
+                                        int offset);
+  inline void LoadWord8Field(Register output, Register source, int offset);
   inline void StoreTaggedSignedField(Register target, int offset, Smi value);
   inline void StoreTaggedFieldWithWriteBarrier(Register target, int offset,
                                                Register value);
@@ -171,6 +177,8 @@ class BaselineAssembler {
   inline void AddSmi(Register lhs, Smi rhs);
   inline void SmiUntag(Register value);
   inline void SmiUntag(Register output, Register value);
+
+  inline void Word32And(Register output, Register lhs, int rhs);
 
   inline void Switch(Register reg, int case_value_base, Label** labels,
                      int num_labels);
@@ -201,6 +209,21 @@ class SaveAccumulatorScope final {
 
  private:
   BaselineAssembler* assembler_;
+};
+
+class EnsureAccumulatorPreservedScope final {
+ public:
+  inline explicit EnsureAccumulatorPreservedScope(BaselineAssembler* assembler);
+
+  inline ~EnsureAccumulatorPreservedScope();
+
+ private:
+  inline void AssertEqualToAccumulator(Register reg);
+
+  BaselineAssembler* assembler_;
+#ifdef V8_CODE_COMMENTS
+  Assembler::CodeComment comment_;
+#endif
 };
 
 }  // namespace baseline

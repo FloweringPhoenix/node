@@ -5,12 +5,14 @@
 #include "test/cctest/wasm/wasm-simd-utils.h"
 
 #include <cmath>
+#include <type_traits>
 
 #include "src/base/logging.h"
 #include "src/base/memory.h"
 #include "src/common/globals.h"
 #include "src/wasm/compilation-environment.h"
 #include "src/wasm/value-type.h"
+#include "src/wasm/wasm-opcodes-inl.h"
 #include "src/wasm/wasm-opcodes.h"
 #include "test/cctest/compiler/c-signature.h"
 #include "test/cctest/compiler/value-helper.h"
@@ -401,15 +403,6 @@ bool IsExtreme(float x) {
          (abs_x < kSmallFloatThreshold || abs_x > kLargeFloatThreshold);
 }
 
-bool IsSameNan(float expected, float actual) {
-  // Sign is non-deterministic.
-  uint32_t expected_bits = bit_cast<uint32_t>(expected) & ~0x80000000;
-  uint32_t actual_bits = bit_cast<uint32_t>(actual) & ~0x80000000;
-  // Some implementations convert signaling NaNs to quiet NaNs.
-  return (expected_bits == actual_bits) ||
-         ((expected_bits | 0x00400000) == actual_bits);
-}
-
 bool IsCanonical(float actual) {
   uint32_t actual_bits = bit_cast<uint32_t>(actual);
   // Canonical NaN has quiet bit and no payload.
@@ -475,8 +468,8 @@ void RunF32x4UnOpTest(TestExecutionTier execution_tier, WasmOpcode opcode,
     }
   }
 
-  FOR_FLOAT32_NAN_INPUTS(i) {
-    float x = bit_cast<float>(nan_test_array[i]);
+  FOR_FLOAT32_NAN_INPUTS(f) {
+    float x = bit_cast<float>(nan_test_array[f]);
     if (!PlatformCanRepresent(x)) continue;
     // Extreme values have larger errors so skip them for approximation tests.
     if (!exact && IsExtreme(x)) continue;
@@ -489,6 +482,21 @@ void RunF32x4UnOpTest(TestExecutionTier execution_tier, WasmOpcode opcode,
     }
   }
 }
+
+namespace {
+// Relaxed-simd operations are deterministic only for some range of values.
+// Exclude those from being tested. Currently this is only used for f32x4, f64x2
+// relaxed min and max.
+template <typename T>
+typename std::enable_if<std::is_floating_point<T>::value, bool>::type
+ShouldSkipTestingConstants(WasmOpcode opcode, T lhs, T rhs) {
+  bool has_nan = std::isnan(lhs) || std::isnan(rhs);
+  bool zeroes_of_opposite_signs =
+      (lhs == 0 && rhs == 0 && (std::signbit(lhs) != std::signbit(rhs)));
+  return WasmOpcodes::IsRelaxedSimdOpcode(opcode) &&
+         (has_nan || zeroes_of_opposite_signs);
+}
+}  // namespace
 
 void RunF32x4BinOpTest(TestExecutionTier execution_tier, WasmOpcode opcode,
                        FloatBinOp expected_op) {
@@ -509,6 +517,7 @@ void RunF32x4BinOpTest(TestExecutionTier execution_tier, WasmOpcode opcode,
     if (!PlatformCanRepresent(x)) continue;
     FOR_FLOAT32_INPUTS(y) {
       if (!PlatformCanRepresent(y)) continue;
+      if (ShouldSkipTestingConstants(opcode, x, y)) continue;
       float expected = expected_op(x, y);
       if (!PlatformCanRepresent(expected)) continue;
       r.Call(x, y);
@@ -519,12 +528,13 @@ void RunF32x4BinOpTest(TestExecutionTier execution_tier, WasmOpcode opcode,
     }
   }
 
-  FOR_FLOAT32_NAN_INPUTS(i) {
-    float x = bit_cast<float>(nan_test_array[i]);
+  FOR_FLOAT32_NAN_INPUTS(f) {
+    float x = bit_cast<float>(nan_test_array[f]);
     if (!PlatformCanRepresent(x)) continue;
     FOR_FLOAT32_NAN_INPUTS(j) {
       float y = bit_cast<float>(nan_test_array[j]);
       if (!PlatformCanRepresent(y)) continue;
+      if (ShouldSkipTestingConstants(opcode, x, y)) continue;
       float expected = expected_op(x, y);
       if (!PlatformCanRepresent(expected)) continue;
       r.Call(x, y);
@@ -572,15 +582,6 @@ bool IsExtreme(double x) {
   const double kLargeFloatThreshold = 1.0e298;
   return abs_x != 0.0f &&  // 0 or -0 are fine.
          (abs_x < kSmallFloatThreshold || abs_x > kLargeFloatThreshold);
-}
-
-bool IsSameNan(double expected, double actual) {
-  // Sign is non-deterministic.
-  uint64_t expected_bits = bit_cast<uint64_t>(expected) & ~0x8000000000000000;
-  uint64_t actual_bits = bit_cast<uint64_t>(actual) & ~0x8000000000000000;
-  // Some implementations convert signaling NaNs to quiet NaNs.
-  return (expected_bits == actual_bits) ||
-         ((expected_bits | 0x0008000000000000) == actual_bits);
 }
 
 bool IsCanonical(double actual) {
@@ -648,8 +649,8 @@ void RunF64x2UnOpTest(TestExecutionTier execution_tier, WasmOpcode opcode,
     }
   }
 
-  FOR_FLOAT64_NAN_INPUTS(i) {
-    double x = bit_cast<double>(double_nan_test_array[i]);
+  FOR_FLOAT64_NAN_INPUTS(d) {
+    double x = bit_cast<double>(double_nan_test_array[d]);
     if (!PlatformCanRepresent(x)) continue;
     // Extreme values have larger errors so skip them for approximation tests.
     if (!exact && IsExtreme(x)) continue;
@@ -682,6 +683,7 @@ void RunF64x2BinOpTest(TestExecutionTier execution_tier, WasmOpcode opcode,
     if (!PlatformCanRepresent(x)) continue;
     FOR_FLOAT64_INPUTS(y) {
       if (!PlatformCanRepresent(x)) continue;
+      if (ShouldSkipTestingConstants(opcode, x, y)) continue;
       double expected = expected_op(x, y);
       if (!PlatformCanRepresent(expected)) continue;
       r.Call(x, y);
@@ -692,13 +694,14 @@ void RunF64x2BinOpTest(TestExecutionTier execution_tier, WasmOpcode opcode,
     }
   }
 
-  FOR_FLOAT64_NAN_INPUTS(i) {
-    double x = bit_cast<double>(double_nan_test_array[i]);
+  FOR_FLOAT64_NAN_INPUTS(d) {
+    double x = bit_cast<double>(double_nan_test_array[d]);
     if (!PlatformCanRepresent(x)) continue;
     FOR_FLOAT64_NAN_INPUTS(j) {
       double y = bit_cast<double>(double_nan_test_array[j]);
       double expected = expected_op(x, y);
       if (!PlatformCanRepresent(expected)) continue;
+      if (ShouldSkipTestingConstants(opcode, x, y)) continue;
       r.Call(x, y);
       for (int i = 0; i < 2; i++) {
         double actual = LANE(g, i);

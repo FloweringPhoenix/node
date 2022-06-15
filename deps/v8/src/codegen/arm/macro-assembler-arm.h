@@ -76,6 +76,14 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void StubPrologue(StackFrame::Type type);
   void Prologue();
 
+  enum ArgumentsCountMode { kCountIncludesReceiver, kCountExcludesReceiver };
+  enum ArgumentsCountType { kCountIsInteger, kCountIsSmi, kCountIsBytes };
+  void DropArguments(Register count, ArgumentsCountType type,
+                     ArgumentsCountMode mode);
+  void DropArgumentsAndPushNewReceiver(Register argc, Register receiver,
+                                       ArgumentsCountType type,
+                                       ArgumentsCountMode mode);
+
   // Push a standard frame, consisting of lr, fp, context and JS function
   void PushStandardFrame(Register function_reg);
 
@@ -89,7 +97,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   // Push two registers.  Pushes leftmost register first (to highest address).
   void Push(Register src1, Register src2, Condition cond = al) {
     if (src1.code() > src2.code()) {
-      stm(db_w, sp, src1.bit() | src2.bit(), cond);
+      stm(db_w, sp, {src1, src2}, cond);
     } else {
       str(src1, MemOperand(sp, 4, NegPreIndex), cond);
       str(src2, MemOperand(sp, 4, NegPreIndex), cond);
@@ -100,9 +108,9 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void Push(Register src1, Register src2, Register src3, Condition cond = al) {
     if (src1.code() > src2.code()) {
       if (src2.code() > src3.code()) {
-        stm(db_w, sp, src1.bit() | src2.bit() | src3.bit(), cond);
+        stm(db_w, sp, {src1, src2, src3}, cond);
       } else {
-        stm(db_w, sp, src1.bit() | src2.bit(), cond);
+        stm(db_w, sp, {src1, src2}, cond);
         str(src3, MemOperand(sp, 4, NegPreIndex), cond);
       }
     } else {
@@ -117,14 +125,13 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
     if (src1.code() > src2.code()) {
       if (src2.code() > src3.code()) {
         if (src3.code() > src4.code()) {
-          stm(db_w, sp, src1.bit() | src2.bit() | src3.bit() | src4.bit(),
-              cond);
+          stm(db_w, sp, {src1, src2, src3, src4}, cond);
         } else {
-          stm(db_w, sp, src1.bit() | src2.bit() | src3.bit(), cond);
+          stm(db_w, sp, {src1, src2, src3}, cond);
           str(src4, MemOperand(sp, 4, NegPreIndex), cond);
         }
       } else {
-        stm(db_w, sp, src1.bit() | src2.bit(), cond);
+        stm(db_w, sp, {src1, src2}, cond);
         Push(src3, src4, cond);
       }
     } else {
@@ -140,20 +147,17 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
       if (src2.code() > src3.code()) {
         if (src3.code() > src4.code()) {
           if (src4.code() > src5.code()) {
-            stm(db_w, sp,
-                src1.bit() | src2.bit() | src3.bit() | src4.bit() | src5.bit(),
-                cond);
+            stm(db_w, sp, {src1, src2, src3, src4, src5}, cond);
           } else {
-            stm(db_w, sp, src1.bit() | src2.bit() | src3.bit() | src4.bit(),
-                cond);
+            stm(db_w, sp, {src1, src2, src3, src4}, cond);
             str(src5, MemOperand(sp, 4, NegPreIndex), cond);
           }
         } else {
-          stm(db_w, sp, src1.bit() | src2.bit() | src3.bit(), cond);
+          stm(db_w, sp, {src1, src2, src3}, cond);
           Push(src4, src5, cond);
         }
       } else {
-        stm(db_w, sp, src1.bit() | src2.bit(), cond);
+        stm(db_w, sp, {src1, src2}, cond);
         Push(src3, src4, src5, cond);
       }
     } else {
@@ -174,7 +178,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   void Pop(Register src1, Register src2, Condition cond = al) {
     DCHECK(src1 != src2);
     if (src1.code() > src2.code()) {
-      ldm(ia_w, sp, src1.bit() | src2.bit(), cond);
+      ldm(ia_w, sp, {src1, src2}, cond);
     } else {
       ldr(src2, MemOperand(sp, 4, PostIndex), cond);
       ldr(src1, MemOperand(sp, 4, PostIndex), cond);
@@ -186,10 +190,10 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
     DCHECK(!AreAliased(src1, src2, src3));
     if (src1.code() > src2.code()) {
       if (src2.code() > src3.code()) {
-        ldm(ia_w, sp, src1.bit() | src2.bit() | src3.bit(), cond);
+        ldm(ia_w, sp, {src1, src2, src3}, cond);
       } else {
         ldr(src3, MemOperand(sp, 4, PostIndex), cond);
-        ldm(ia_w, sp, src1.bit() | src2.bit(), cond);
+        ldm(ia_w, sp, {src1, src2}, cond);
       }
     } else {
       Pop(src2, src3, cond);
@@ -204,15 +208,14 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
     if (src1.code() > src2.code()) {
       if (src2.code() > src3.code()) {
         if (src3.code() > src4.code()) {
-          ldm(ia_w, sp, src1.bit() | src2.bit() | src3.bit() | src4.bit(),
-              cond);
+          ldm(ia_w, sp, {src1, src2, src3, src4}, cond);
         } else {
           ldr(src4, MemOperand(sp, 4, PostIndex), cond);
-          ldm(ia_w, sp, src1.bit() | src2.bit() | src3.bit(), cond);
+          ldm(ia_w, sp, {src1, src2, src3}, cond);
         }
       } else {
         Pop(src3, src4, cond);
-        ldm(ia_w, sp, src1.bit() | src2.bit(), cond);
+        ldm(ia_w, sp, {src1, src2}, cond);
       }
     } else {
       Pop(src2, src3, src4, cond);
@@ -232,15 +235,6 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   // trashed.
   void PrepareCallCFunction(int num_reg_arguments, int num_double_registers = 0,
                             Register scratch = no_reg);
-
-  // Removes current frame and its arguments from the stack preserving
-  // the arguments and a return address pushed to the stack for the next call.
-  // Both |callee_args_count| and |caller_args_count| do not include
-  // receiver. |callee_args_count| is not modified. |caller_args_count|
-  // is trashed.
-  void PrepareForTailCall(Register callee_args_count,
-                          Register caller_args_count, Register scratch0,
-                          Register scratch1);
 
   // There are two ways of passing double arguments on ARM, depending on
   // whether soft or hard floating point ABI is used. These functions
@@ -519,6 +513,8 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
     mov(dst, Operand::SmiUntag(src), s);
   }
 
+  void SmiToInt32(Register smi) { SmiUntag(smi); }
+
   // Load an object from the root table.
   void LoadRoot(Register destination, RootIndex index) final {
     LoadRoot(destination, index, al);
@@ -560,8 +556,6 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   // Compute the start of the generated instruction stream from the current PC.
   // This is an alternative to embedding the {CodeObject} handle as a reference.
   void ComputeCodeStartAddress(Register dst);
-
-  void ResetSpeculationPoisonRegister();
 
   // Control-flow integrity:
 
@@ -758,7 +752,10 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   }
 
   // Checks if value is in range [lower_limit, higher_limit] using a single
-  // comparison.
+  // comparison. Flags C=0 or Z=1 indicate the value is in the range (condition
+  // ls).
+  void CompareRange(Register value, unsigned lower_limit,
+                    unsigned higher_limit);
   void JumpIfIsInRange(Register value, unsigned lower_limit,
                        unsigned higher_limit, Label* on_in_range);
 
@@ -798,7 +795,7 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
                                bool builtin_exit_frame = false);
 
   // Generates a trampoline to jump to the off-heap instruction stream.
-  void JumpToInstructionStream(Address entry);
+  void JumpToOffHeapInstructionStream(Address entry);
 
   // ---------------------------------------------------------------------------
   // In-place weak references.
@@ -848,6 +845,10 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
 
   // Abort execution if argument is not a JSFunction, enabled via --debug-code.
   void AssertFunction(Register object);
+
+  // Abort execution if argument is not a callable JSFunction, enabled via
+  // --debug-code.
+  void AssertCallableFunction(Register object);
 
   // Abort execution if argument is not a JSBoundFunction,
   // enabled via --debug-code.

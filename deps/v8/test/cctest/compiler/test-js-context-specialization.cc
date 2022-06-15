@@ -12,6 +12,7 @@
 #include "src/compiler/node-properties.h"
 #include "src/compiler/simplified-operator.h"
 #include "src/heap/factory.h"
+#include "src/objects/contexts.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/property.h"
 #include "test/cctest/cctest.h"
@@ -201,7 +202,7 @@ TEST(ReduceJSLoadContext1) {
 
   Node* start = t.graph()->NewNode(t.common()->Start(0));
   t.graph()->SetStart(start);
-  Handle<ScopeInfo> empty(ScopeInfo::Empty(t.main_isolate()), t.main_isolate());
+  ScopeInfoRef empty = MakeRef(t.broker(), ScopeInfo::Empty(t.main_isolate()));
   const i::compiler::Operator* create_function_context =
       t.javascript()->CreateFunctionContext(empty, 42, FUNCTION_SCOPE);
 
@@ -271,7 +272,7 @@ TEST(ReduceJSLoadContext2) {
 
   Node* start = t.graph()->NewNode(t.common()->Start(0));
   t.graph()->SetStart(start);
-  Handle<ScopeInfo> empty(ScopeInfo::Empty(t.main_isolate()), t.main_isolate());
+  ScopeInfoRef empty = MakeRef(t.broker(), ScopeInfo::Empty(t.main_isolate()));
   const i::compiler::Operator* create_function_context =
       t.javascript()->CreateFunctionContext(empty, 42, FUNCTION_SCOPE);
 
@@ -281,8 +282,8 @@ TEST(ReduceJSLoadContext2) {
   Handle<Context> context_object0 = t.factory()->NewNativeContext();
   Handle<Context> context_object1 =
       NewContextForTesting(t.isolate(), context_object0);
-  context_object0->set(Context::EXTENSION_INDEX, *slot_value0);
-  context_object1->set(Context::EXTENSION_INDEX, *slot_value1);
+  context_object0->set_extension(*slot_value0);
+  context_object1->set_extension(*slot_value1);
 
   Node* context0 = t.jsgraph()->Constant(MakeRef(t.broker(), context_object1));
   Node* context1 =
@@ -358,15 +359,14 @@ TEST(ReduceJSLoadContext3) {
   Handle<Context> context_object0 = factory->NewNativeContext();
   Handle<Context> context_object1 =
       NewContextForTesting(isolate, context_object0);
-  context_object0->set(Context::EXTENSION_INDEX, *slot_value0);
-  context_object1->set(Context::EXTENSION_INDEX, *slot_value1);
+  context_object0->set_extension(*slot_value0);
+  context_object1->set_extension(*slot_value1);
 
   ContextSpecializationTester t(Just(OuterContext(context_object1, 0)));
 
   Node* start = t.graph()->NewNode(t.common()->Start(2));
   t.graph()->SetStart(start);
-  Handle<ScopeInfo> empty(ScopeInfo::Empty(t.main_isolate()),
-                          handle_zone_scope.main_isolate());
+  ScopeInfoRef empty = MakeRef(t.broker(), ScopeInfo::Empty(t.main_isolate()));
   const i::compiler::Operator* create_function_context =
       t.javascript()->CreateFunctionContext(empty, 42, FUNCTION_SCOPE);
 
@@ -496,7 +496,7 @@ TEST(ReduceJSStoreContext1) {
 
   Node* start = t.graph()->NewNode(t.common()->Start(0));
   t.graph()->SetStart(start);
-  Handle<ScopeInfo> empty(ScopeInfo::Empty(t.main_isolate()), t.main_isolate());
+  ScopeInfoRef empty = MakeRef(t.broker(), ScopeInfo::Empty(t.main_isolate()));
   const i::compiler::Operator* create_function_context =
       t.javascript()->CreateFunctionContext(empty, 42, FUNCTION_SCOPE);
 
@@ -540,7 +540,7 @@ TEST(ReduceJSStoreContext2) {
 
   Node* start = t.graph()->NewNode(t.common()->Start(0));
   t.graph()->SetStart(start);
-  Handle<ScopeInfo> empty(ScopeInfo::Empty(t.main_isolate()), t.main_isolate());
+  ScopeInfoRef empty = MakeRef(t.broker(), ScopeInfo::Empty(t.main_isolate()));
   const i::compiler::Operator* create_function_context =
       t.javascript()->CreateFunctionContext(empty, 42, FUNCTION_SCOPE);
 
@@ -550,8 +550,8 @@ TEST(ReduceJSStoreContext2) {
   Handle<Context> context_object0 = t.factory()->NewNativeContext();
   Handle<Context> context_object1 =
       NewContextForTesting(t.isolate(), context_object0);
-  context_object0->set(Context::EXTENSION_INDEX, *slot_value0);
-  context_object1->set(Context::EXTENSION_INDEX, *slot_value1);
+  context_object0->set_extension(*slot_value0);
+  context_object1->set_extension(*slot_value1);
 
   Node* context0 = t.jsgraph()->Constant(MakeRef(t.broker(), context_object1));
   Node* context1 =
@@ -599,15 +599,14 @@ TEST(ReduceJSStoreContext3) {
   Handle<Context> context_object0 = factory->NewNativeContext();
   Handle<Context> context_object1 =
       NewContextForTesting(isolate, context_object0);
-  context_object0->set(Context::EXTENSION_INDEX, *slot_value0);
-  context_object1->set(Context::EXTENSION_INDEX, *slot_value1);
+  context_object0->set_extension(*slot_value0);
+  context_object1->set_extension(*slot_value1);
 
   ContextSpecializationTester t(Just(OuterContext(context_object1, 0)));
 
   Node* start = t.graph()->NewNode(t.common()->Start(2));
   t.graph()->SetStart(start);
-  Handle<ScopeInfo> empty(ScopeInfo::Empty(t.main_isolate()),
-                          handle_zone_scope.main_isolate());
+  ScopeInfoRef empty = MakeRef(t.broker(), ScopeInfo::Empty(t.main_isolate()));
   const i::compiler::Operator* create_function_context =
       t.javascript()->CreateFunctionContext(empty, 42, FUNCTION_SCOPE);
 

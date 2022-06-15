@@ -57,7 +57,7 @@ AssemblerOptions AssemblerOptions::Default(Isolate* isolate) {
   const bool generating_embedded_builtin =
       isolate->IsGeneratingEmbeddedBuiltins();
   options.record_reloc_info_for_serialization = serializer;
-  options.enable_root_array_delta_access =
+  options.enable_root_relative_access =
       !serializer && !generating_embedded_builtin;
 #ifdef USE_SIMULATOR
   // Even though the simulator is enabled, we may still need to generate code
@@ -72,14 +72,12 @@ AssemblerOptions AssemblerOptions::Default(Isolate* isolate) {
 #endif
   options.inline_offheap_trampolines &= !generating_embedded_builtin;
 #if V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64
-  const base::AddressRegion& code_range = isolate->heap()->code_region();
-  DCHECK_IMPLIES(code_range.begin() != kNullAddress, !code_range.is_empty());
-  options.code_range_start = code_range.begin();
+  options.code_range_base = isolate->heap()->code_range_base();
 #endif
   options.short_builtin_calls =
       isolate->is_short_builtin_calls_enabled() &&
       !generating_embedded_builtin &&
-      (options.code_range_start != kNullAddress) &&
+      (options.code_range_base != kNullAddress) &&
       // Serialization of RUNTIME_ENTRY reloc infos is not supported yet.
       !serializer;
   return options;
@@ -140,35 +138,6 @@ class ExternalAssemblerBufferImpl : public AssemblerBuffer {
   const int size_;
 };
 
-class OnHeapAssemblerBuffer : public AssemblerBuffer {
- public:
-  OnHeapAssemblerBuffer(Handle<Code> code, int size)
-      : code_(code), size_(size) {}
-
-  byte* start() const override {
-    return reinterpret_cast<byte*>(code_->raw_instruction_start());
-  }
-
-  int size() const override { return size_; }
-
-  std::unique_ptr<AssemblerBuffer> Grow(int new_size) override {
-    DCHECK_LT(size(), new_size);
-    // We fall back to the slow path using the default assembler buffer and
-    // compile the code off the GC heap. Compiling directly on heap makes less
-    // sense now, since we will need to allocate a new Code object, copy the
-    // content generated so far and relocate.
-    return std::make_unique<DefaultAssemblerBuffer>(new_size);
-  }
-
-  bool IsOnHeap() const override { return true; }
-
-  MaybeHandle<Code> code() const override { return code_; }
-
- private:
-  Handle<Code> code_;
-  const int size_;
-};
-
 static thread_local std::aligned_storage_t<sizeof(ExternalAssemblerBufferImpl),
                                            alignof(ExternalAssemblerBufferImpl)>
     tls_singleton_storage;
@@ -203,15 +172,6 @@ std::unique_ptr<AssemblerBuffer> ExternalAssemblerBuffer(void* start,
 
 std::unique_ptr<AssemblerBuffer> NewAssemblerBuffer(int size) {
   return std::make_unique<DefaultAssemblerBuffer>(size);
-}
-
-std::unique_ptr<AssemblerBuffer> NewOnHeapAssemblerBuffer(Isolate* isolate,
-                                                          int estimated) {
-  int size = std::max(AssemblerBase::kMinimalBufferSize, estimated);
-  MaybeHandle<Code> code =
-      isolate->factory()->NewEmptyCode(CodeKind::BASELINE, size);
-  if (code.is_null()) return {};
-  return std::make_unique<OnHeapAssemblerBuffer>(code.ToHandleChecked(), size);
 }
 
 // -----------------------------------------------------------------------------
@@ -262,6 +222,7 @@ CpuFeatureScope::~CpuFeatureScope() {
 
 bool CpuFeatures::initialized_ = false;
 bool CpuFeatures::supports_wasm_simd_128_ = false;
+bool CpuFeatures::supports_cetss_ = false;
 unsigned CpuFeatures::supported_ = 0;
 unsigned CpuFeatures::icache_line_size_ = 0;
 unsigned CpuFeatures::dcache_line_size_ = 0;
@@ -281,13 +242,16 @@ HeapObjectRequest::HeapObjectRequest(const StringConstantBase* string,
 
 // Platform specific but identical code for all the platforms.
 
-void Assembler::RecordDeoptReason(DeoptimizeReason reason,
+void Assembler::RecordDeoptReason(DeoptimizeReason reason, uint32_t node_id,
                                   SourcePosition position, int id) {
   EnsureSpace ensure_space(this);
   RecordRelocInfo(RelocInfo::DEOPT_SCRIPT_OFFSET, position.ScriptOffset());
   RecordRelocInfo(RelocInfo::DEOPT_INLINING_ID, position.InliningId());
   RecordRelocInfo(RelocInfo::DEOPT_REASON, static_cast<int>(reason));
   RecordRelocInfo(RelocInfo::DEOPT_ID, id);
+#ifdef DEBUG
+  RecordRelocInfo(RelocInfo::DEOPT_NODE_ID, node_id);
+#endif  // DEBUG
 }
 
 void Assembler::DataAlign(int m) {
@@ -305,7 +269,7 @@ void AssemblerBase::RequestHeapObject(HeapObjectRequest request) {
   heap_object_requests_.push_front(request);
 }
 
-int AssemblerBase::AddCodeTarget(Handle<Code> target) {
+int AssemblerBase::AddCodeTarget(Handle<CodeT> target) {
   int current = static_cast<int>(code_targets_.size());
   if (current > 0 && !target.is_null() &&
       code_targets_.back().address() == target.address()) {
@@ -317,7 +281,7 @@ int AssemblerBase::AddCodeTarget(Handle<Code> target) {
   }
 }
 
-Handle<Code> AssemblerBase::GetCodeTarget(intptr_t code_target_index) const {
+Handle<CodeT> AssemblerBase::GetCodeTarget(intptr_t code_target_index) const {
   DCHECK_LT(static_cast<size_t>(code_target_index), code_targets_.size());
   return code_targets_[code_target_index];
 }
